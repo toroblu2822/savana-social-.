@@ -1,0 +1,236 @@
+
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>🌿 Savana Social</title>
+  <script src="https://unpkg.com/vue@3.4.15/dist/vue.global.prod.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet" />
+  <style>
+    [v-cloak] { display: none; }
+    .overlay-panel {
+      transition: transform 0.3s ease-in-out;
+    }
+    .overlay-right.hidden {
+      transform: translateX(100%);
+    }
+  </style>
+</head>
+<body class="bg-yellow-50 font-sans">
+<div id="app" v-cloak class="min-h-screen p-4 max-w-3xl mx-auto space-y-4 relative">
+
+  <!-- HEADER -->
+  <div class="sticky top-0 z-10 bg-yellow-500 text-white text-xl font-bold py-3 px-4 flex justify-between items-center rounded-xl shadow">
+    🌿 Savana Social
+    <div class="flex items-center space-x-2">
+      <input v-model="searchQuery" placeholder="🔍 Cerca utenti..." class="rounded px-2 py-1 text-sm text-black" />
+      <button @click="toggleOnlinePanel" class="bg-yellow-600 px-3 py-1 rounded hover:bg-yellow-700 text-sm">👥 Online</button>
+    </div>
+  </div>
+
+  <!-- LOGIN -->
+  <div v-if="!loggedIn" class="bg-white p-6 rounded-xl shadow space-y-4">
+    <input v-model="username" placeholder="Nome animale" class="w-full p-2 border rounded" />
+    <select v-model="species" class="w-full p-2 border rounded">
+      <option disabled value="">Specie</option>
+      <option>Leone</option><option>Giraffa</option><option>Elefante</option>
+      <option>Zebra</option><option>Ghepardo</option><option>Iena</option>
+      <option>Scimmia</option><option>Antilope</option>
+    </select>
+    <textarea v-model="bio" placeholder="Bio..." class="w-full p-2 border rounded"></textarea>
+    <input type="file" @change="handleAvatar" class="w-full p-2 border rounded" />
+    <button @click="login" class="w-full bg-yellow-600 text-white p-2 rounded hover:bg-yellow-700">Entra</button>
+  </div>
+
+  <!-- APP -->
+  <div v-else>
+    <!-- PROFILO -->
+    <div class="bg-white p-4 rounded-xl shadow flex justify-between items-center">
+      <div class="flex items-center space-x-3">
+        <img v-if="avatar" :src="avatar" class="w-12 h-12 rounded-full object-cover" />
+        <div>
+          <h2 class="font-bold">{{ username }} ({{ species }})</h2>
+          <p class="text-sm italic">{{ bio }}</p>
+        </div>
+      </div>
+      <button @click="logout" class="text-red-500 text-sm">Esci</button>
+    </div>
+
+    <!-- POST BOX -->
+    <div class="bg-white p-4 rounded-xl shadow space-y-2">
+      <textarea v-model="newPost" placeholder="Scrivi qualcosa..." class="w-full p-2 border rounded"></textarea>
+      <input type="file" @change="handlePostImage" class="w-full p-2 border rounded" />
+      <button @click="submitPost" class="w-full bg-blue-600 text-white p-2 rounded hover:bg-blue-700">Pubblica</button>
+    </div>
+
+    <!-- FEED -->
+    <div v-for="post in filteredPosts" :key="post.timestamp" class="bg-white p-4 rounded-xl shadow space-y-2 mt-4">
+      <div class="flex justify-between items-center">
+        <div class="flex space-x-2 items-center">
+          <img v-if="post.avatar" :src="post.avatar" class="w-10 h-10 rounded-full object-cover" />
+          <div>
+            <strong>{{ post.author }} ({{ post.species }})</strong>
+            <p class="text-xs italic text-gray-500">{{ post.bio }}</p>
+          </div>
+        </div>
+        <span class="text-xs text-gray-500">{{ post.timestamp }}</span>
+      </div>
+      <p>{{ post.content }}</p>
+      <img v-if="post.image" :src="post.image" class="rounded w-full max-h-64 object-contain" />
+      <div class="flex space-x-4 text-sm mt-2">
+        <button @click="toggleLike(post)" :class="userLiked(post) ? 'text-pink-500' : 'text-gray-600'">❤️ Like ({{ post.likes.length }})</button>
+        <button @click="post.showComments = !post.showComments" class="text-blue-600">💬 Commenti ({{ post.comments.length }})</button>
+      </div>
+      <div v-if="post.showComments" class="space-y-2 mt-2">
+        <div v-for="c in post.comments" class="bg-gray-100 p-2 rounded text-sm">
+          <strong>{{ c.author }}:</strong> {{ c.text }}
+        </div>
+        <div class="flex space-x-2">
+          <input v-model="post.newComment" placeholder="Scrivi un commento..." class="flex-1 p-1 text-sm border rounded" />
+          <button @click="addComment(post)" class="text-sm bg-blue-500 text-white px-2 rounded">Invia</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ONLINE PANEL -->
+  <div :class="['fixed top-0 right-0 h-full w-64 bg-white shadow-lg overlay-panel overlay-right z-30 p-4', showOnline ? '' : 'hidden']">
+    <div class="flex justify-between items-center mb-2 font-bold">
+      Utenti Online
+      <button @click="toggleOnlinePanel" class="text-red-500 text-lg">✕</button>
+    </div>
+    <ul class="space-y-2 text-sm">
+      <li v-for="user in onlineUsers" :key="user">🟢 {{ user }}</li>
+    </ul>
+  </div>
+
+</div>
+
+<script>
+const { createApp } = Vue;
+
+createApp({
+  data() {
+    return {
+      username: '',
+      species: '',
+      bio: '',
+      avatar: '',
+      postImage: '',
+      loggedIn: false,
+      newPost: '',
+      posts: [],
+      searchQuery: '',
+      showOnline: false,
+      onlineUsers: []
+    };
+  },
+  computed: {
+    filteredPosts() {
+      if (!this.searchQuery) return this.posts;
+      return this.posts.filter(p =>
+        p.author.toLowerCase().includes(this.searchQuery.toLowerCase()) ||
+        p.species.toLowerCase().includes(this.searchQuery.toLowerCase())
+      );
+    }
+  },
+  methods: {
+    login() {
+      if (!this.username || !this.species || !this.bio || !this.avatar) {
+        alert("Completa tutti i campi, inclusa l'immagine!");
+        return;
+      }
+      this.loggedIn = true;
+      this.onlineUsers.push(this.username);
+      localStorage.setItem("savana-user", JSON.stringify({
+        username: this.username,
+        species: this.species,
+        bio: this.bio,
+        avatar: this.avatar
+      }));
+    },
+    logout() {
+      this.loggedIn = false;
+      this.username = '';
+      this.species = '';
+      this.bio = '';
+      this.avatar = '';
+    },
+    handleAvatar(e) {
+      const file = e.target.files[0];
+      if (file) {
+        const r = new FileReader();
+        r.onload = e => this.avatar = e.target.result;
+        r.readAsDataURL(file);
+      }
+    },
+    handlePostImage(e) {
+      const file = e.target.files[0];
+      if (file) {
+        const r = new FileReader();
+        r.onload = e => this.postImage = e.target.result;
+        r.readAsDataURL(file);
+      }
+    },
+    submitPost() {
+      if (!this.newPost && !this.postImage) return;
+      const post = {
+        author: this.username,
+        species: this.species,
+        bio: this.bio,
+        avatar: this.avatar,
+        content: this.newPost,
+        image: this.postImage,
+        timestamp: new Date().toLocaleString(),
+        likes: [],
+        comments: [],
+        showComments: false,
+        newComment: ''
+      };
+      this.posts.unshift(post);
+      this.newPost = '';
+      this.postImage = '';
+      localStorage.setItem("savana-posts", JSON.stringify(this.posts));
+    },
+    toggleLike(post) {
+      const idx = post.likes.indexOf(this.username);
+      if (idx === -1) post.likes.push(this.username);
+      else post.likes.splice(idx, 1);
+      localStorage.setItem("savana-posts", JSON.stringify(this.posts));
+    },
+    userLiked(post) {
+      return post.likes.includes(this.username);
+    },
+    addComment(post) {
+      if (post.newComment.trim()) {
+        post.comments.push({ author: this.username, text: post.newComment });
+        post.newComment = '';
+        localStorage.setItem("savana-posts", JSON.stringify(this.posts));
+      }
+    },
+    toggleOnlinePanel() {
+      this.showOnline = !this.showOnline;
+    },
+    loadLocalUser() {
+      const saved = localStorage.getItem("savana-user");
+      if (saved) {
+        const user = JSON.parse(saved);
+        this.username = user.username;
+        this.species = user.species;
+        this.bio = user.bio;
+        this.avatar = user.avatar;
+        this.loggedIn = true;
+        this.onlineUsers.push(this.username);
+      }
+    }
+  },
+  mounted() {
+    const savedPosts = localStorage.getItem("savana-posts");
+    if (savedPosts) this.posts = JSON.parse(savedPosts);
+    this.loadLocalUser();
+  }
+}).mount('#app');
+</script>
+</body>
+</html>
