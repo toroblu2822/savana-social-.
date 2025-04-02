@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Savana Social 🔍 Online</title>
+  <script src="https://unpkg.com/vue@3.4.15/dist/vue.global.prod.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore-compat.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet" />
+  <style>
+    [v-cloak] { display: none; }
+    body {
+      background: url('https://images.unsplash.com/photo-1504457046788-2509ec43a81c?auto=format&fit=crop&w=1470&q=80') no-repeat center center fixed;
+      background-size: cover;
+    }
+    .backdrop { background-color: rgba(255, 255, 255, 0.9); }
+  </style>
+</head>
+<body>
+<div id="app" v-cloak class="backdrop min-h-screen p-4 max-w-3xl mx-auto space-y-6 rounded-xl shadow-xl">
+
+  <!-- HEADER -->
+  <div class="flex justify-between items-center">
+    <h1 class="text-3xl font-bold text-yellow-700">🌿 Savana Social</h1>
+    <div class="flex space-x-2 items-center">
+      <input v-model="searchQuery" placeholder="🔍 Cerca utenti..." class="rounded px-2 py-1 text-sm text-black" />
+      <button @click="toggleOnlinePanel" class="bg-yellow-600 text-white px-3 py-1 rounded text-sm">👥 Online</button>
+    </div>
+  </div>
+
+  <!-- LOGIN -->
+  <div v-if="!loggedIn" class="bg-white p-6 rounded-xl shadow space-y-4">
+    <input v-model="username" placeholder="Nome animale" class="w-full p-2 border rounded" />
+    <select v-model="species" class="w-full p-2 border rounded">
+      <option disabled value="">Specie</option>
+      <option>Leone</option>
+      <option>Giraffa</option>
+      <option>Elefante</option>
+      <option>Zebra</option>
+      <option>Ghepardo</option>
+      <option>Iena</option>
+      <option>Scimmia</option>
+      <option>Antilope</option>
+    </select>
+    <textarea v-model="bio" placeholder="Bio..." class="w-full p-2 border rounded"></textarea>
+    <input type="file" @change="handleAvatar" class="w-full p-2 border rounded" />
+    <button @click="login" class="w-full bg-yellow-600 text-white p-2 rounded hover:bg-yellow-700">Entra</button>
+  </div>
+
+  <!-- PROFILO -->
+  <div v-else>
+    <div class="bg-white p-4 rounded-xl shadow flex justify-between items-center">
+      <div class="flex space-x-3 items-center">
+        <img v-if="avatar" :src="avatar" class="w-12 h-12 rounded-full object-cover" />
+        <div>
+          <h2 class="font-bold">{{ username }} ({{ species }})</h2>
+          <p class="text-sm italic">{{ bio }}</p>
+        </div>
+      </div>
+      <button @click="logout" class="text-red-500 text-sm">Esci</button>
+    </div>
+
+    <!-- CREA POST -->
+    <div class="bg-white p-4 rounded-xl shadow space-y-2 mt-4">
+      <textarea v-model="newPost" placeholder="Scrivi qualcosa..." class="w-full p-2 border rounded"></textarea>
+      <input type="file" @change="handlePostImage" class="w-full p-2 border rounded" />
+      <button @click="submitPost" class="w-full bg-blue-600 text-white p-2 rounded hover:bg-blue-700">Pubblica</button>
+    </div>
+
+    <!-- RISULTATI RICERCA -->
+    <div v-if="searchQuery && filteredProfiles.length" class="bg-white p-4 rounded-xl shadow mt-4">
+      <h3 class="text-yellow-700 font-bold mb-2">🔎 Risultati:</h3>
+      <div v-for="u in filteredProfiles" :key="u.username" class="border-b pb-2 mb-2 flex items-center space-x-3">
+        <img v-if="u.avatar" :src="u.avatar" class="w-10 h-10 rounded-full object-cover" />
+        <div>
+          <strong>{{ u.username }} ({{ u.species }})</strong>
+          <p class="text-sm text-gray-600 italic">{{ u.bio }}</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- POST -->
+    <div v-for="post in posts" :key="post.id" class="bg-white p-4 rounded-xl shadow mt-4 space-y-2">
+      <div class="flex justify-between items-center">
+        <div class="flex items-center space-x-2">
+          <img v-if="post.avatar" :src="post.avatar" class="w-10 h-10 rounded-full object-cover" />
+          <div>
+            <strong>{{ post.author }} ({{ post.species }})</strong>
+            <p class="text-xs italic text-gray-500">{{ post.bio }}</p>
+          </div>
+        </div>
+        <span class="text-xs text-gray-500">{{ post.timestamp }}</span>
+      </div>
+      <p>{{ post.content }}</p>
+      <img v-if="post.image" :src="post.image" class="rounded w-full max-h-64 object-contain" />
+      <div class="flex space-x-4 text-sm mt-2">
+        <button @click="toggleLike(post)" :class="userLiked(post) ? 'text-pink-500' : 'text-gray-600'">❤️ Like ({{ post.likes.length }})</button>
+        <button @click="post.showComments = !post.showComments" class="text-blue-600">💬 Commenti ({{ post.comments.length }})</button>
+      </div>
+      <div v-if="post.showComments" class="space-y-2 mt-2">
+        <div v-for="c in post.comments" class="bg-gray-100 p-2 rounded text-sm">
+          <strong>{{ c.author }}:</strong> {{ c.text }}
+        </div>
+        <div class="flex space-x-2">
+          <input v-model="post.newComment" placeholder="Scrivi un commento..." class="flex-1 p-1 text-sm border rounded" />
+          <button @click="addComment(post)" class="text-sm bg-blue-500 text-white px-2 rounded">Invia</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PANNELLO ONLINE -->
+  <div v-if="showOnline" class="fixed top-0 right-0 h-full w-64 bg-white shadow-lg p-4 overflow-y-auto">
+    <div class="flex justify-between items-center font-bold mb-2">
+      <span>🟢 Online</span>
+      <button @click="toggleOnlinePanel" class="text-red-500">✕</button>
+    </div>
+    <ul class="space-y-1 text-sm">
+      <li v-for="u in onlineUsers" :key="u">🟢 {{ u }}</li>
+    </ul>
+  </div>
+
+</div>
+
+<script>
+// Firebase config
+const firebaseConfig = {
+  apiKey: "AIzaSyAjBjhgwUd0P4EV7ZhsqCRHPFJQoASUKvc",
+  authDomain: "savana-social.firebaseapp.com",
+  projectId: "savana-social",
+  storageBucket: "savana-social.firebasestorage.app",
+  messagingSenderId: "1009203185830",
+  appId: "1:1009203185830:web:14ca2c419caab2dfc40c67"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
+// Vue app
+const { createApp } = Vue;
+createApp({
+  data() {
+    return {
+      username: '',
+      species: '',
+      bio: '',
+      avatar: '',
+      postImage: '',
+      loggedIn: false,
+      newPost: '',
+      posts: [],
+      allProfiles: [],
+      searchQuery: '',
+      showOnline: false,
+      onlineUsers: []
+    };
+  },
+  computed: {
+    filteredProfiles() {
+      const q = this.searchQuery.toLowerCase();
+      return this.allProfiles.filter(p =>
+        p.username.toLowerCase().includes(q) ||
+        p.species.toLowerCase().includes(q)
+      );
+    }
+  },
+  methods: {
+    login() {
+      if (!this.username || !this.species || !this.bio || !this.avatar) {
+        alert("Compila tutti i campi!");
+        return;
+      }
+      this.loggedIn = true;
+      this.onlineUsers.push(this.username);
+      db.collection("online").doc(this.username).set({ username: this.username });
+      db.collection("profiles").doc(this.username).set({
+        username: this.username,
+        species: this.species,
+        bio: this.bio,
+        avatar: this.avatar
+      });
+    },
+    logout() {
+      db.collection("online").doc(this.username).delete();
+      this.loggedIn = false;
+      this.username = '';
+      this.species = '';
+      this.bio = '';
+      this.avatar = '';
+    },
+    toggleOnlinePanel() {
+      this.showOnline = !this.showOnline;
+    },
+    handleAvatar(e) {
+      const file = e.target.files[0];
+      if (file) {
+        const r = new FileReader();
+        r.onload = e => this.avatar = e.target.result;
+        r.readAsDataURL(file);
+      }
+    },
+    handlePostImage(e) {
+      const file = e.target.files[0];
+      if (file) {
+        const r = new FileReader();
+        r.onload = e => this.postImage = e.target.result;
+        r.readAsDataURL(file);
+      }
+    },
+    submitPost() {
+      if (!this.newPost && !this.postImage) return;
+      db.collection("posts").add({
+        author: this.username,
+        species: this.species,
+        bio: this.bio,
+        avatar: this.avatar,
+        content: this.newPost,
+        image: this.postImage,
+        timestamp: new Date().toLocaleString(),
+        likes: [],
+        comments: []
+      });
+      this.newPost = '';
+      this.postImage = '';
+    },
+    toggleLike(post) {
+      const index = post.likes.indexOf(this.username);
+      if (index === -1) post.likes.push(this.username);
+      else post.likes.splice(index, 1);
+      db.collection("posts").where("timestamp", "==", post.timestamp).get().then(snapshot => {
+        snapshot.forEach(doc => {
+          db.collection("posts").doc(doc.id).update({ likes: post.likes });
+        });
+      });
+    },
+    userLiked(post) {
+      return post.likes.includes(this.username);
+    },
+    addComment(post) {
+      if (post.newComment.trim()) {
+        post.comments.push({ author: this.username, text: post.newComment });
+        db.collection("posts").where("timestamp", "==", post.timestamp).get().then(snapshot => {
+          snapshot.forEach(doc => {
+            db.collection("posts").doc(doc.id).update({ comments: post.comments });
+          });
+        });
+        post.newComment = '';
+      }
+    },
+    loadPosts() {
+      db.collection("posts").orderBy("timestamp", "desc").onSnapshot(snapshot => {
+        this.posts = snapshot.docs.map(doc => {
+          const p = doc.data();
+          p.newComment = '';
+          p.showComments = false;
+          return p;
+        });
+      });
+    },
+    loadProfiles() {
+      db.collection("profiles").onSnapshot(snapshot => {
+        this.allProfiles = snapshot.docs.map(d => d.data());
+      });
+      db.collection("online").onSnapshot(snapshot => {
+        this.onlineUsers = snapshot.docs.map(d => d.id);
+      });
+    }
+  },
+  mounted() {
+    this.loadPosts();
+    this.loadProfiles();
+  }
+}).mount('#app');
+</script>
+</body>
+</html>
